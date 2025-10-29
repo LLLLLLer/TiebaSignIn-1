@@ -30,4 +30,24 @@ jobs:
         BDUSS: ${{ secrets.BDUSS }}
         SCKEY: ${{ secrets.SCKEY }}
       run: |
+        echo "🚀 开始执行贴吧每日签到..."
         mvn compile exec:java -Dexec.mainClass="top.srcrs.Run" -Dexec.args="${BDUSS} ${SCKEY}"
+    # ========== 新增：兜底微信通知（确保收到结果）==========
+    - name: 推送签到执行状态到微信（兜底）
+      if: always() # 无论前面步骤成功或失败都执行
+      env:
+          SCKEY: ${{ secrets.SCKEY }}
+      run: |
+        # 判断上一步是否成功
+        if [ "${{ steps.sign_in.outcome }}" == "success" ]; then
+           status="✅ 贴吧每日签到执行成功"
+           color="green"
+        else
+           status="❌ 贴吧每日签到执行失败！请检查日志"
+           color="red"
+        fi
+        # 发送 Server酱 消息
+        curl -X POST "https://sctapi.ftqq.com/${SCKEY}.send" \
+            -d "title=${status}" \
+            -d "desp=时间：$(date +%Y-%m-%d\ %H:%M:%S\ %z)%0A%0A> 本消息为 GitHub Actions 执行状态兜底通知。详细签到结果请查看 Java 程序推送。"
+      
