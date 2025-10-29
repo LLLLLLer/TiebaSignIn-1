@@ -6,58 +6,60 @@ on:
   workflow_dispatch:  # 支持手动触发测试
 
 env:
-  START_DATE_UTC: "2025-10-28"  # 2025-10-29 00:00 CST = 2025-10-28 16:00 UTC，但按天算，我们用 UTC 日期 2025-10-28 作为起始日
+  START_DATE_UTC: "2025-10-28"  # 起始日：北京时间 2025-10-29 对应的 UTC 日期
 
 jobs:
   check-and-run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: 检出代码仓库
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT }}  # 需要写权限来提交 .last_run_date
+          token: ${{ secrets.GH_PAT }}
 
-      - name: Get current UTC date
+      - name: 获取当前 UTC 日期
         id: date
         run: echo "today=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
-      - name: Read last run date
+      - name: 读取上次执行日期
         id: last_run
         run: |
           if [ -f .last_run_date ]; then
             last=$(cat .last_run_date)
-            echo "Found last run date: $last"
+            echo "找到上次执行日期：$last"
           else
             last="${{ env.START_DATE_UTC }}"
-            echo "No .last_run_date found, using start date: $last"
+            echo "未找到记录文件，使用起始日期：$last"
           fi
           echo "last_run_date=$last" >> $GITHUB_OUTPUT
 
-      - name: Calculate days since last run
+      - name: 计算距离上次执行的天数
         id: calc
         run: |
           last_sec=$(date -d "${{ steps.last_run.outputs.last_run_date }}" +%s)
           today_sec=$(date -d "${{ steps.date.outputs.today }}" +%s)
           diff_days=$(( (today_sec - last_sec) / 86400 ))
-          echo "Days since last run: $diff_days"
+          echo "距离上次执行已过去 $diff_days 天"
           echo "days=$diff_days" >> $GITHUB_OUTPUT
 
-      - name: Decide whether to run
+      - name: 判断是否达到60天周期
         id: should_run
         run: |
           if [ ${{ steps.calc.outputs.days }} -ge 60 ]; then
+            echo "满足60天周期，准备执行签到任务"
             echo "should_run=true" >> $GITHUB_OUTPUT
           else
+            echo "尚未达到60天周期，跳过本次执行"
             echo "should_run=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up JDK 1.8
+      - name: 设置 JDK 1.8
         if: steps.should_run.outputs.should_run == 'true'
         uses: actions/setup-java@v1
         with:
           java-version: 1.8
 
-      - name: Cache local Maven repository
+      - name: 缓存 Maven 本地仓库
         if: steps.should_run.outputs.should_run == 'true'
         uses: actions/cache@v4
         with:
@@ -66,21 +68,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      - name: Run Tieba Sign-In
+      - name: 执行贴吧签到任务
         if: steps.should_run.outputs.should_run == 'true'
         env:
           BDUSS: ${{ secrets.BDUSS }}
           SCKEY: ${{ secrets.SCKEY }}
         run: |
-          echo "✅ Executing Tieba sign-in (60-day cycle)..."
+          echo "✅ 正在执行贴吧60天周期签到..."
           mvn compile exec:java -Dexec.mainClass="top.srcrs.Run" -Dexec.args="${BDUSS} ${SCKEY}"
 
-      - name: Update last run date
+      - name: 更新上次执行日期
         if: steps.should_run.outputs.should_run == 'true'
         run: |
           echo "${{ steps.date.outputs.today }}" > .last_run_date
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .last_run_date
-          git commit -m "chore: update last run date for 60-day cycle"
+          git commit -m "chore: 更新60天签到周期的上次执行日期"
           git push
